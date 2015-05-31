@@ -61,6 +61,8 @@ const (
     }`
 
     tmp_name = "%s.%s.tmp"
+
+    jm_lam = 0.5
 )
 
 //Global Vars.
@@ -77,7 +79,11 @@ var (
         "search_type" : "count",
     }
 
-    models = []string{"okapitf", "tfidf"}
+    models = []string{
+        "okapitf", "tfidf", "bm25",
+        "laplace",
+        "jm",
+    }
 )
 
 // The fields in customized response json struct should
@@ -131,14 +137,29 @@ func TF_IDF(okapi_tf, df float64) float64 {
     return okapi_tf * math.Log(total_docs / df)
 }
 
-func OkapiBM25(tf, dlen, tfq float64) {
-    
+func OkapiBM25(tf, dlen, tfq, df float64) float64 {
+    var (
+        k1 = 1.2 
+        k2 = 900.00
+        b = 0.75
+    )
+
+    log := math.Log(total_docs + 0.5) - math.Log(df + 0.5)
+    okapitf := (1 + k1)*tf  / (tf + k1 * ((1 - b) + b * (dlen / avg_dlen)))
+    trail := (1 + k2)*tfq / (tfq + k2)
+    return log*okapitf*trail
 }
 
-func UnigramLM_LaplaceSmoothing() {
+func UnigramLM_LaplaceSmoothing(tf, dlen float64) float64 {
+    return math.Log(tf + 1) - math.Log(dlen + voc_size)
 }
 
-func UnigramLM_JMSmoothing() {   
+/*
+* @ctf, corpus-wide term frequency.
+* @all_ctf, corpus-wide tf of all query terms.
+*/
+func UnigramLM_JMSmoothing(tf, dlen, ctf, tdlen float64) float64 {
+    return math.Log(jm_lam * tf/dlen + (1 - jm_lam) * (ctf - tf)/(tdlen - dlen))
 }
 
 // Set up `avg_dlen`, `voc_size` and `total_docs`.
@@ -206,7 +227,7 @@ func ParseAgg(data json.RawMessage) (float64, float64) {
     err := json.Unmarshal(data, &aggs)
 
     if err != nil {
-        fmt.Println("error:", err)
+        panic(err)
     }
 
     return aggs.Adlen.Value, aggs.Voc.Value
@@ -245,7 +266,7 @@ func TokenizeTerms(query string) ([]string, map[string]int) {
     resp, err := conn.AnalyzeIndices(index_name, analyze_args)
 
     if err != nil {
-        fmt.Println(err)
+        panic(err)
     }
 
     for _, token := range resp.Tokens {
@@ -266,43 +287,63 @@ func Query(query string, sema chan bool, ioctrl *IOCtrl) {
     // Store the computed score of docs for this query.
     okapi_score := make(map[string]float64)
     tfidf_score := make(map[string]float64)
+    bm25_score := make(map[string]float64)
+    laplace_score := make(map[string]float64)
+    jm_score := make(map[string]float64)
 
     score_map := map[string]map[string]float64{
         "okapitf": okapi_score, "tfidf": tfidf_score,
+        "bm25": bm25_score, "laplace": laplace_score,
+        "jm": jm_score,
     }
 
     qno, qs := TrimQuery(query)
     tokens, tfq_map := TokenizeTerms(qs)
-    var term_rst []*[]*DocHit
-    var totals []float64
-    var tfq []float64
+    var (
+        term_rst []*[]*DocHit
+        totals []float64
+        tfq []float64
+        ctf []float64
+        tdlen float64
+    )
 
+    // Pull TF, Dlen from ES
     for _, token := range tokens {
            arr, t := GetTFandDlen(token)
            term_rst = append(term_rst, arr)
            totals = append(totals, t)
            tfq = append(tfq, float64(tfq_map[token]))
+           ctf = append(ctf, SumTf(arr))
     }
 
+    tdlen = SumDlen(&term_rst)
+
+    unique_docs := FilterDuplicate(&term_rst)
+    
     for i, t := range totals {
         dstats := term_rst[i]
+        hitdoc_laplace_score := make(map[string]float64)
+        hitdoc_jm_score := make(map[string]float64)
 
         for _, dstat := range *dstats {
             okapi := OkapiTF(dstat.Tf, dstat.Dlen)
             idf := TF_IDF(okapi, t)
-            //bm25 := OkapiBM25(dstat.Tf, dstat.Dlen, tfq[i])
-            //Laplace := UnigramLM_LaplaceSmoothing()
+            bm25 := OkapiBM25(dstat.Tf, dstat.Dlen, tfq[i], t)
+            laplace := UnigramLM_LaplaceSmoothing(dstat.Tf, dstat.Dlen)
+            jm := UnigramLM_JMSmoothing(dstat.Tf, dstat.Dlen, ctf[i], tdlen)
 
             AddTermScore(okapi_score, dstat.Id, okapi)
             AddTermScore(tfidf_score, dstat.Id, idf)
-            //AddTermScore(itf_score, dstat.Id, itf)
-            //AddTermScore(itf_score, dstat.Id, itf)
-            //AddTermScore(itf_score, dstat.Id, itf)
-        }
-    }
+            AddTermScore(bm25_score, dstat.Id, bm25)
 
-    // clear array.
-    term_rst = nil
+            // Store the score of docs that contains this term.
+            AddTermScore(hitdoc_laplace_score, dstat.Id, laplace)
+            AddTermScore(hitdoc_jm_score, dstat.Id, jm)
+        }
+
+        AccumulateLaplace(laplace_score, unique_docs, hitdoc_laplace_score)
+        AccumuJM(jm_score, unique_docs, hitdoc_jm_score, ctf[i], tdlen)
+    }
 
     for model, score := range score_map {
         ranking := RankDocs(score)
@@ -337,18 +378,67 @@ func AddTermScore(docs_score map[string]float64, id string, score float64) {
     docs_score[id] += score
 }
 
-func NewSema(size int) chan bool {
-    sema := make(chan bool, size)
-
-    // init the sema by @size.
-    for i := 0; i < size; i++ {
-        sema <- true
+func AccumulateLaplace(ls, unique_docs, hit_score map[string]float64) {
+    for docno, dlen := range unique_docs {
+        value, present := hit_score[docno]
+        if present {
+            ls[docno] += value
+        } else {
+            ls[docno] += UnigramLM_LaplaceSmoothing(0, dlen)
+        }
     }
-
-    return  sema   
 }
 
+func AccumuJM(jm, unique_docs, hit_score map[string]float64, ctf, tdlen float64) {
+    for docno, dlen := range unique_docs {
+        value, present := hit_score[docno]
 
+        if present {
+            jm[docno] += value
+        } else {
+            jm[docno] += UnigramLM_JMSmoothing(0, dlen, ctf, tdlen)
+        }
+    }
+}
+
+func FilterDuplicate(terms_rst *[]*[]*DocHit) map[string]float64 {
+    unique := make(map[string]float64)
+    
+    for _, ts := range *terms_rst{
+        for _, d := range *ts {
+            unique[d.Id] = d.Dlen
+        } 
+    }
+
+    return unique
+}
+
+func SumTf(hits *[]*DocHit) float64 {
+    var ctf float64
+
+    for _, dh := range *hits {
+        ctf += dh.Tf
+    }
+
+    return ctf
+}
+
+func SumDlen(all_hits *[]*[]*DocHit) float64 {
+    var sum float64
+    unique := make(map[string]float64)
+
+    for _, t_hits := range *all_hits {
+        for _, hit := range *t_hits {
+            unique[hit.Id] = hit.Dlen
+        }
+    }
+
+    for _, n := range unique {
+        sum += n
+    }
+
+    return sum
+}
 /* SHOULD ADD MORE TYPES TO ELASTICGO SO THAT WE CAN FINISH THIS
 func MakeTermQuery(temr string) {
     

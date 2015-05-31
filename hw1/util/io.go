@@ -3,6 +3,7 @@ package util
 import (
     "os"
     "fmt"
+    "log"
     "strings"
     "bufio"
     "sync"
@@ -17,6 +18,16 @@ type IOCtrl struct {
     Wg *sync.WaitGroup
 }
 
+func NewSema(size int) chan bool {
+    sema := make(chan bool, size)
+
+    // init the sema by @size.
+    for i := 0; i < size; i++ {
+        sema <- true
+    }
+
+    return  sema   
+}
 
 func InitIOCtrl(buf_size int) *IOCtrl {
     tmp_chan := make(chan string, buf_size)
@@ -25,7 +36,9 @@ func InitIOCtrl(buf_size int) *IOCtrl {
     return ioctrl
 }
 
-func MergeTmpFiles(file_chan chan string) {
+func MergeTmpFiles(file_chan chan string, wg *sync.WaitGroup) {
+    defer wg.Done()
+
     file_map := make(map[string]*os.File)
     
     for _, model := range models {
@@ -46,18 +59,18 @@ func MergeTmpFiles(file_chan chan string) {
             line := scanner.Text()
             _, e := writer.WriteString(line+"\n")
 
-            if e != nil { fmt.Print("[ERROR] in MergedTmpFiles:", e, "[TEXT]:", line)}
+            if e != nil { log.Println("[ERROR] in MergedTmpFiles:", e, "[TEXT]:", line)}
         }
         
         writer.Flush()
 
-        fmt.Println("Merged", tmpf)
-        
+        Print("-- Merged ", tmpf)
+
         f.Close()
         re := os.Remove(tmpf)
 
         if re != nil {
-            fmt.Println("[ERROR] when deleting tmp file:", re)
+            log.Println("[ERROR] when deleting tmp file:", re)
         }
     }
 }
@@ -69,7 +82,6 @@ func SaveRanking(name, qno string, ranking []DocScore, tmp_chan chan string) {
     
     if e != nil {
         panic(e)
-        //save_file, _ = os.Create("okapiTF_ranking.txt")
     }
     
     for i, r := range ranking {
@@ -79,14 +91,15 @@ func SaveRanking(name, qno string, ranking []DocScore, tmp_chan chan string) {
             panic(err)
         }
     }
-    writer.Flush()
 
+    // Ending operations
+    writer.Flush()
     save_file.Close()
     tmp_chan <- name
 }
 
-func ReadQueries() ([]string, error) {
-    qfile, err := os.Open("/ap_data/query_desc.51-100.short.txt")
+func ReadQueries(query_path string) ([]string, error) {
+    qfile, err := os.Open(query_path)
     reader := bufio.NewReader(qfile)
 
     if err != nil {
@@ -110,4 +123,10 @@ func ReadQueries() ([]string, error) {
         }
 
     return queries, err
+}
+
+func Print(s ...interface{}) {
+    fmt.Print("                           \r")
+    fmt.Print(s...)
+    fmt.Print("\r")
 }
