@@ -7,7 +7,6 @@ import (
     "errors"
     "strings"
     "sort"
-    "sync"
 )
 
 const (
@@ -106,11 +105,6 @@ type DocScore struct {
 type DocSorter struct {
     DS []DocScore
     By func(s1, s2 *DocScore) bool
-}
-
-type IOCtrl struct {
-    Files chan string
-    Wg sync.WaitGroup
 }
 
 // Len is part of sort.Interface.
@@ -255,11 +249,6 @@ func TokenizeTerms(query string) ([]string, map[string]int) {
     }
 
     for _, token := range resp.Tokens {
-        //_, ok := tfq[token.Name] 
-        /*
-        if !ok {
-            tokens = append(tokens, token.Name)
-        }*/
         tokens = append(tokens, token.Name)
         tfq[token.Name] += 1
     }
@@ -268,13 +257,10 @@ func TokenizeTerms(query string) ([]string, map[string]int) {
     return tokens, tfq
 }
 
+/*
+* Call @func Initialize() before calling this function.
+*/
 func Query(query string, sema chan bool, ioctrl *IOCtrl) {
-    err := Initialize()
-
-    if err != nil {
-        panic(err)    
-    }
-
     defer ioctrl.Wg.Done()
 
     // Store the computed score of docs for this query.
@@ -349,15 +335,6 @@ func RankDocs(docs_score map[string]float64) []DocScore{
 
 func AddTermScore(docs_score map[string]float64, id string, score float64) {
     docs_score[id] += score
-}
-
-
-func InitIOCtrl(buf_size int) *IOCtrl {
-    tmp_chan := make(chan string, buf_size)
-    ioctrl := new(IOCtrl)
-    ioctrl.Files = tmp_chan
-
-    return ioctrl
 }
 
 func NewSema(size int) chan bool {

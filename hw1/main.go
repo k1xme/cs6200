@@ -21,7 +21,7 @@ func main() {
 		<- sema
 		ioctrl.Wg.Add(1)
 
-		fmt.Println("Go query", i)
+		fmt.Print("\rGo query", i+1)
 		go util.Query(q, sema, ioctrl)
 	}
 

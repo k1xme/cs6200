@@ -2,13 +2,15 @@ package util
 
 import (
 	"testing"
-	"fmt"
+	//"fmt"
 )
 
 func TestConnect(t *testing.T) {
 	Connect()
 
-	r, e := conn.AllNodesInfo()
+	conn.AllNodesInfo()
+}
 
-	fmt.Println(r, e)
+func TestIndex(t *testing.T) {
+	IndexDocs()
 }

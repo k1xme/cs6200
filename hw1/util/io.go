@@ -5,7 +5,25 @@ import (
     "fmt"
     "strings"
     "bufio"
+    "sync"
 )
+
+/*
+* NOTE: When using WaitGroup, you have to pass its pointer
+* to the called function. Otherwise will incur livelock.
+*/
+type IOCtrl struct {
+    Files chan string
+    Wg *sync.WaitGroup
+}
+
+
+func InitIOCtrl(buf_size int) *IOCtrl {
+    tmp_chan := make(chan string, buf_size)
+    ioctrl := &IOCtrl{Files: tmp_chan, Wg: new(sync.WaitGroup)}
+
+    return ioctrl
+}
 
 func MergeTmpFiles(file_chan chan string) {
     file_map := make(map[string]*os.File)

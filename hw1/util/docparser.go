@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"strings"
+	"sync"
 )
 
 // Constants for parsing TREC docs.
@@ -24,16 +25,15 @@ type Doc struct {
 
 // Parses the file in `path`. 
 // This function supports Goroutine.
-func ParseDocs(path string, docs interface{}, err *error) {
+func ParseDocs(path string, docs chan *Doc, sema chan bool, wg *sync.WaitGroup) {
+	defer wg.Done()
 	// Open the file at path
 	var docno, text string
 
 	file, e := os.Open(path)
 
 	if e != nil {
-		*err = e
-		return
-		//panic("Parsing Docs Failed")
+		panic(e)
 	}
 	
 	// Close file after the execution finishes.
@@ -76,7 +76,8 @@ func ParseDocs(path string, docs interface{}, err *error) {
 				// This means we have fully parsed a Doc.
 				// So append it into the result array.
 				tmp_doc := &Doc{docno, text}
-
+				docs <- tmp_doc
+				/*
 				switch d := docs.(type) {
 					case *[]*Doc:
 						// Change the value of where pointer `d` points to.
@@ -86,8 +87,10 @@ func ParseDocs(path string, docs interface{}, err *error) {
 
 					case chan *Doc:
 						// If d is a Channel, just push the parsed doc to it.
-						d <- tmp_doc
-			}
+				
+				}*/
 		}
 	}
+	// Tell main goroutine we are done, you can proceed to the next waiting file.
+	sema <- true
 }
