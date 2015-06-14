@@ -144,7 +144,21 @@ func NewTmpWriter(name string) *bufio.Writer {
 
 func NewTmpReader(name string) *bufio.Reader {
     f, e := os.Open(name)
-    HandleError(e)
+    if e != nil {
+        return nil
+    }
     reader := bufio.NewReader(f)
     return reader
+}
+
+func CleanTmps(file ...*os.File) error {
+    fmt.Println("clean tmp")
+    for _, f := range file {
+        f.Close()
+        fmt.Println("clean tmp", f)
+        err := os.Remove(f.Name())
+        HandleError(err)
+        os.Remove(f.Name()+".catalog")
+    }
+    return nil
 }

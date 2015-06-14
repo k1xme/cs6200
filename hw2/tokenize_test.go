@@ -3,7 +3,7 @@ package hw2
 import (
 	"testing"
 	"fmt"
-	"os"
+	//"os"
 )
 
 /*
@@ -26,24 +26,27 @@ func TestStemming(t *testing.T) {
 	Stem("eed")
 	LoadStopWords("/ap_data/stoplist.txt")
 }
-*/
+**/
 /*
 func TestGenInvertedList(t *testing.T) {
 	GenInvertedIndex()
-}*/
-
+}
+/*
 func TestLoadCatalog(t *testing.T) {
-	log := LoadCatalog(".tmp/1001.catalog")
-	f, _ := os.Open(".tmp/1001")
+	log := LoadCatalog(".tmp/1000.catalog")
+	f, _ := os.Open(".tmp/1000")
 	list := LoadInvertedList(f, log.TermRec["fishi"][0], log.TermRec["fishi"][1])
 	fmt.Println(list)
-}
+	list = LoadInvertedList(f, log.TermRec["alleg"][0], log.TermRec["alleg"][1])
+	fmt.Println(list)
+}*/
 
+func TestMergeIndex(t *testing.T) {
+	comm := "alleg"
+	log1 := LoadCatalog("")
+	log := LoadCatalog(".tmp/12000.catalog")
 
-func TestDecodeIList(t *testing.T) {
-	list := InvertedList{12300073: []int{1,2,3,4}, 12300173: []int{1,3,3,4}}
-	ebuf, _ := list.Encode()
-	var l = make(map[int][]int)
-	Decode(&l, ebuf)
-	fmt.Println(InvertedList(l))
+	nlog := MergeIndex(log, log1)
+
+	fmt.Println(nlog.TermRec[comm])
 }
