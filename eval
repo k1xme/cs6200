@@ -1,0 +1,1 @@
+perl trec_eval qrels.adhoc.51-100.AP89.txt jm_ranking.txt | grep -w ' ' | awk '{print $1}'|grep '\<0'

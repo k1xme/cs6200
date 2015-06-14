@@ -18,7 +18,7 @@ const (
           "query": {
             "function_score": {
               "query": {
-                "match": {
+                "term": {
                   "text": "%s"
                 }
               },
@@ -62,7 +62,6 @@ const (
 
     tmp_name = "%s.%s.tmp"
 
-    jm_lam = 0.5
 )
 
 //Global Vars.
@@ -159,7 +158,8 @@ func UnigramLM_LaplaceSmoothing(tf, dlen float64) float64 {
 * @all_ctf, corpus-wide tf of all query terms.
 */
 func UnigramLM_JMSmoothing(tf, dlen, ctf, tdlen float64) float64 {
-    return math.Log(jm_lam * tf/dlen + (1 - jm_lam) * (ctf - tf)/(tdlen - dlen))
+    jm_lam := 0.5
+    return math.Log(jm_lam * (tf/dlen) + (1 - jm_lam) * (ctf - tf)/(tdlen - dlen))
 }
 
 // Set up `avg_dlen`, `voc_size` and `total_docs`.
@@ -340,9 +340,11 @@ func Query(query string, sema chan bool, ioctrl *IOCtrl) {
             AddTermScore(hitdoc_laplace_score, dstat.Id, laplace)
             AddTermScore(hitdoc_jm_score, dstat.Id, jm)
         }
-
-        AccumulateLaplace(laplace_score, unique_docs, hitdoc_laplace_score)
+        //CompensateSmoothing(jm_score, laplace_score, unique_docs, hitdoc_jm_score,
+        //                    hitdoc_laplace_score, ctf[i], tdlen)
         AccumuJM(jm_score, unique_docs, hitdoc_jm_score, ctf[i], tdlen)
+        AccumulateLaplace(laplace_score, unique_docs, hitdoc_laplace_score)
+        
     }
 
     for model, score := range score_map {
@@ -396,6 +398,21 @@ func AccumuJM(jm, unique_docs, hit_score map[string]float64, ctf, tdlen float64)
         if present {
             jm[docno] += value
         } else {
+            jm[docno] += UnigramLM_JMSmoothing(0, dlen, ctf, tdlen)
+        }
+    }
+}
+
+func CompensateSmoothing(jm, ls, unique_docs, hitjm_score, hitlaplace_score map[string]float64, ctf, tdlen float64) {
+    for docno, dlen := range unique_docs {
+        jm_score, present := hitjm_score[docno]
+        laplace_score, _ := hitlaplace_score[docno]
+
+        if present {
+            ls[docno] += laplace_score
+            jm[docno] += jm_score
+        } else {
+            ls[docno] += UnigramLM_LaplaceSmoothing(0, dlen)
             jm[docno] += UnigramLM_JMSmoothing(0, dlen, ctf, tdlen)
         }
     }

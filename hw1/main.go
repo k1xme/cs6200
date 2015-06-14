@@ -8,12 +8,12 @@ import (
 )
 
 func main() {
-	defer timeTrack(time.Now())
+	//defer timeTrack(time.Now())
 
 	qs, _ := util.ReadQueries("/ap_data/query_desc.51-100.short.txt")
 
 	sema := util.NewSema(15)
-	ioctrl := util.InitIOCtrl(25)
+	ioctrl := util.InitIOCtrl(30)
 	wait_merge := new(sync.WaitGroup)
 
 	util.HandleError(util.Initialize())

@@ -44,7 +44,7 @@ func IndexDocs() {
 	go ParseDir(default_dir, docs)
 
 	for doc := range docs {
-		indexer.Index("test", _type, doc.Docno, "", nil, doc, false)
+		indexer.Index("test", _type, string(doc.Docno), "", nil, doc, false)
 	}
 	
 	indexer.Stop()
@@ -52,7 +52,7 @@ func IndexDocs() {
 	fmt.Println("Finished....")
 }
 
-func ParseDir(dir string, docs chan *Doc) {
+func ParseDir(dir string, docs interface{}) {
 	files, err := ListFiles(dir)
 	sema := NewSema(parsing_worker_num)
 	wg := new(sync.WaitGroup)
@@ -63,13 +63,16 @@ func ParseDir(dir string, docs chan *Doc) {
 		<- sema 
 		wg.Add(1)
 
-		fmt.Print("Start parsing ", f, "....\r")
-
 		go ParseDocs(f, docs, sema, wg)
 	}
 
 	wg.Wait()
-	close(docs)
+	switch d := docs.(type) {
+		case chan *[]*Doc:
+			close(d)
+		case chan *Doc:
+			close(d)
+	}
 }
 
 func ListFiles(dir string) ([]string, error){
@@ -79,8 +82,6 @@ func ListFiles(dir string) ([]string, error){
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Println("Filtering files....")
 
 	for _, info := range infos {
 		if info.IsDir() || !strings.HasPrefix(info.Name(), "ap89") {

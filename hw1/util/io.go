@@ -77,7 +77,7 @@ func MergeTmpFiles(file_chan chan string, wg *sync.WaitGroup) {
 
 func SaveRanking(name, qno string, ranking []DocScore, tmp_chan chan string) {
     rank_fmt := "%s Q0 %s %d %f Exp\n"
-    save_file, e := os.OpenFile(name, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0777)
+    save_file, e := os.Create(name)
     writer := bufio.NewWriter(save_file)
     
     if e != nil {
@@ -129,4 +129,22 @@ func Print(s ...interface{}) {
     fmt.Print("                           \r")
     fmt.Print(s...)
     fmt.Print("\r")
+}
+
+func NewTmpWriter(name string) *bufio.Writer {
+    save_file, e := os.Create(name)
+    writer := bufio.NewWriter(save_file)
+
+    if e != nil {
+        panic(e)
+    }
+
+    return writer
+}
+
+func NewTmpReader(name string) *bufio.Reader {
+    f, e := os.Open(name)
+    HandleError(e)
+    reader := bufio.NewReader(f)
+    return reader
 }

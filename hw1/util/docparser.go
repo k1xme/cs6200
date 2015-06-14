@@ -3,32 +3,45 @@ package util
 import (
 	"bufio"
 	"os"
-	"strings"
+	strings "bytes"
 	"sync"
+//	"fmt"
 )
 
 // Constants for parsing TREC docs.
-const (
-	DOCNO_BEGIN_TAG = "<DOCNO>"
-	DOCNO_END_TAG = "</DOCNO>"
-	DOC_BEGIN_TAG = "<DOC>"
-	DOC_END_TAG = "</DOC>"
-	TEXT_BEGIN_TAG = "<TEXT>"
-	TEXT_END_TAG = "</TEXT>"
+var (
+	DOCNO_BEGIN_TAG = []byte("<DOCNO>")
+	DOCNO_END_TAG = []byte("</DOCNO>")
+	DOC_BEGIN_TAG = []byte("<DOC>")
+	DOC_END_TAG = []byte("</DOC>")
+	TEXT_BEGIN_TAG = []byte("<TEXT>")
+	TEXT_END_TAG = []byte("</TEXT>")
+	LINE_ENDING = []byte("\n")
+	SPACE = []byte(" ")
 )
 
 // Structure that stores the parsed doc information.
 type Doc struct {
 	Docno string `json:"docno"`
-	Text string `json:"text"`
+	Text []byte `json:"text"`
 }
 
 // Parses the file in `path`. 
 // This function supports Goroutine.
-func ParseDocs(path string, docs chan *Doc, sema chan bool, wg *sync.WaitGroup) {
+func ParseDocs(path string, docs interface{}, sema chan bool, wg *sync.WaitGroup) {
 	defer wg.Done()
-	// Open the file at path
-	var docno, text string
+	
+	ParseByLine(path, docs)
+	// Tell main goroutine we are done, you can proceed to the next waiting file.
+	sema <- true
+}
+
+func ParseByLine(path string, docs interface{}) {
+	var (
+		docno string
+		text []byte
+		docsList []*Doc
+	)
 
 	file, e := os.Open(path)
 
@@ -39,58 +52,65 @@ func ParseDocs(path string, docs chan *Doc, sema chan bool, wg *sync.WaitGroup) 
 	// Close file after the execution finishes.
 	defer file.Close()
 
-	var lineScanner = bufio.NewScanner(file)
-
-	// Set the scanner to line-scanning mode.
-	lineScanner.Split(bufio.ScanLines)
+	var lineScanner = NewLineScanner(file)
 
 	for lineScanner.Scan() {
-		line := lineScanner.Text()
+		line := lineScanner.Bytes()
 
 		switch {
-			case line == DOC_BEGIN_TAG:
+			case strings.Equal(line, DOC_BEGIN_TAG):
 				// We are now start to extract the info of a new doc.
 				// Initialize the fields.
 				docno = ""
-				text = ""
+				text = nil
 
-			case line == TEXT_BEGIN_TAG:
+			case strings.Equal(line, TEXT_BEGIN_TAG):
 				lineScanner.Scan()
-				line = lineScanner.Text()
+				line = lineScanner.Bytes()
 				
 				// Some docs may contain more than one <TEXT> tag.
 				// So we need to keep extract all these tags.
-				for line != TEXT_END_TAG {
-					text += line + "\n"
+				for !strings.Equal(line, TEXT_END_TAG) {
+					line = append(line, LINE_ENDING...)
+					text = append(text, line...)
 					lineScanner.Scan()
-					line = lineScanner.Text()
+					line = lineScanner.Bytes()
 				}
 
 			case strings.HasPrefix(line, DOCNO_BEGIN_TAG):
 				// Strip off the prefix and suffix to get DOCNO.
-				line = strings.TrimPrefix(line, DOCNO_BEGIN_TAG + " ")
-				line = strings.TrimSuffix(line, " " + DOCNO_END_TAG)
-				docno = line
+				line = strings.TrimPrefix(line, append(DOCNO_BEGIN_TAG, SPACE...))
+				line = strings.TrimSuffix(line, append(SPACE, DOCNO_END_TAG...))
+				docno = string(line)
 
-			case line == DOC_END_TAG:
+			case strings.Equal(line, DOC_END_TAG):
 				// This means we have fully parsed a Doc.
 				// So append it into the result array.
 				tmp_doc := &Doc{docno, text}
-				docs <- tmp_doc
-				/*
+
 				switch d := docs.(type) {
-					case *[]*Doc:
+					case chan *[]*Doc:
 						// Change the value of where pointer `d` points to.
 						// NOTE: only by doing so gurantees the calling
 						//   funtion can see the modification.
-						*d = append(*docs.(*[]*Doc), tmp_doc)
+						//*d = append(*docs.(*[]*Doc), tmp_doc)
+						docsList = append(docsList, tmp_doc)
 
 					case chan *Doc:
 						// If d is a Channel, just push the parsed doc to it.
-				
-				}*/
+						d <- tmp_doc
+				}
 		}
 	}
-	// Tell main goroutine we are done, you can proceed to the next waiting file.
-	sema <- true
+	switch d := docs.(type) {
+		case chan *[]*Doc:
+			d <- &docsList
+	}
+}
+
+func NewLineScanner(file *os.File) *bufio.Scanner {
+	var lineScanner = bufio.NewScanner(file)
+	// Set the scanner to line-scanning mode.
+	lineScanner.Split(bufio.ScanLines)
+	return lineScanner
 }
