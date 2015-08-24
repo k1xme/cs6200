@@ -3,27 +3,26 @@ package util
 import (
 	"bufio"
 	"os"
-	strings "bytes"
+	"strings"
 	"sync"
-//	"fmt"
 )
 
 // Constants for parsing TREC docs.
 var (
-	DOCNO_BEGIN_TAG = []byte("<DOCNO>")
-	DOCNO_END_TAG = []byte("</DOCNO>")
-	DOC_BEGIN_TAG = []byte("<DOC>")
-	DOC_END_TAG = []byte("</DOC>")
-	TEXT_BEGIN_TAG = []byte("<TEXT>")
-	TEXT_END_TAG = []byte("</TEXT>")
-	LINE_ENDING = []byte("\n")
-	SPACE = []byte(" ")
+	DOCNO_BEGIN_TAG = "<DOCNO>"
+	DOCNO_END_TAG = "</DOCNO>"
+	DOC_BEGIN_TAG = "<DOC>"
+	DOC_END_TAG = "</DOC>"
+	TEXT_BEGIN_TAG = "<TEXT>"
+	TEXT_END_TAG = "</TEXT>"
+	LINE_ENDING = "\n"
+	SPACE = " "
 )
 
 // Structure that stores the parsed doc information.
 type Doc struct {
 	Docno string `json:"docno"`
-	Text []byte `json:"text"`
+	Text string `json:"text"`
 }
 
 // Parses the file in `path`. 
@@ -39,7 +38,7 @@ func ParseDocs(path string, docs interface{}, sema chan bool, wg *sync.WaitGroup
 func ParseByLine(path string, docs interface{}) {
 	var (
 		docno string
-		text []byte
+		text string
 		docsList []*Doc
 	)
 
@@ -55,35 +54,34 @@ func ParseByLine(path string, docs interface{}) {
 	var lineScanner = NewLineScanner(file)
 
 	for lineScanner.Scan() {
-		line := lineScanner.Bytes()
+		line := lineScanner.Text()
 
 		switch {
-			case strings.Equal(line, DOC_BEGIN_TAG):
+			case line == DOC_BEGIN_TAG:
 				// We are now start to extract the info of a new doc.
 				// Initialize the fields.
 				docno = ""
-				text = nil
+				text = ""
 
-			case strings.Equal(line, TEXT_BEGIN_TAG):
+			case line == TEXT_BEGIN_TAG:
 				lineScanner.Scan()
-				line = lineScanner.Bytes()
+				line = lineScanner.Text()
 				
 				// Some docs may contain more than one <TEXT> tag.
 				// So we need to keep extract all these tags.
-				for !strings.Equal(line, TEXT_END_TAG) {
-					line = append(line, LINE_ENDING...)
-					text = append(text, line...)
+				for line != TEXT_END_TAG {
+					text += line + "\n"
 					lineScanner.Scan()
-					line = lineScanner.Bytes()
+					line = lineScanner.Text()
 				}
 
 			case strings.HasPrefix(line, DOCNO_BEGIN_TAG):
 				// Strip off the prefix and suffix to get DOCNO.
-				line = strings.TrimPrefix(line, append(DOCNO_BEGIN_TAG, SPACE...))
-				line = strings.TrimSuffix(line, append(SPACE, DOCNO_END_TAG...))
-				docno = string(line)
+				line = strings.TrimPrefix(line, DOCNO_BEGIN_TAG + " ")
+				line = strings.TrimSuffix(line, " " + DOCNO_END_TAG)
+				docno = line
 
-			case strings.Equal(line, DOC_END_TAG):
+			case line == DOC_END_TAG:
 				// This means we have fully parsed a Doc.
 				// So append it into the result array.
 				tmp_doc := &Doc{docno, text}

@@ -1,0 +1,5 @@
+0	bm25
+1	jm
+2	laplace
+3	okapitf
+4	tfidf

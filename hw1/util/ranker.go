@@ -71,8 +71,6 @@ var (
     search_args = map[string]interface{} {
         "_source" : "false",
         "size"    : "85000",
-        //"search_type": "scan",
-        //"scroll" : "1m",
     }
     agg_args = map[string]interface{}{
         "search_type" : "count",
@@ -99,6 +97,7 @@ type DocHit struct {
    Id string
    Dlen float64
    Tf float64
+   Pos []int
 }
 
 // The final score computed by the retrival model and its DOCNO.
@@ -127,7 +126,7 @@ func (s *DocSorter) Less(i, j int) bool {
 }
 
 
-func OkapiTF(tf, dlen float64) float64 {
+func OkapiTF(tf, dlen, avg_dlen float64) float64 {
     // Is here the bottleneck of the program?
     return tf / (tf + 1.5 + 1.5 * (dlen / avg_dlen))
 }
@@ -136,7 +135,7 @@ func TF_IDF(okapi_tf, df float64) float64 {
     return okapi_tf * math.Log(total_docs / df)
 }
 
-func OkapiBM25(tf, dlen, tfq, df float64) float64 {
+func OkapiBM25(tf, dlen, tfq, df, total_docs, avg_dlen float64) float64 {
     var (
         k1 = 1.2 
         k2 = 900.00
@@ -149,7 +148,7 @@ func OkapiBM25(tf, dlen, tfq, df float64) float64 {
     return log*okapitf*trail
 }
 
-func UnigramLM_LaplaceSmoothing(tf, dlen float64) float64 {
+func UnigramLM_LaplaceSmoothing(tf, dlen, voc_size float64) float64 {
     return math.Log(tf + 1) - math.Log(dlen + voc_size)
 }
 
@@ -162,6 +161,11 @@ func UnigramLM_JMSmoothing(tf, dlen, ctf, tdlen float64) float64 {
     return math.Log(jm_lam * (tf/dlen) + (1 - jm_lam) * (ctf - tf)/(tdlen - dlen))
 }
 
+func SetMeta(avg, voc, docNum float64) {
+    avg_dlen = avg
+    voc_size = voc
+    total_docs = docNum
+}
 // Set up `avg_dlen`, `voc_size` and `total_docs`.
 // Then create a new Conn if `conn` is nil.
 func Initialize() error {
@@ -212,7 +216,6 @@ func GetTFandDlen(term string) (*[]*DocHit, float64){
                         Dlen:cfields.Dlen[0]}
 
         stats = append(stats, tmp)
-        //dochit_chan <- tmp
     }
     return &stats, float64(hits.Total)
 }
@@ -229,7 +232,7 @@ func ParseAgg(data json.RawMessage) (float64, float64) {
     if err != nil {
         panic(err)
     }
-
+    fmt.Println("Average Doc Len",aggs.Adlen.Value)
     return aggs.Adlen.Value, aggs.Voc.Value
 }
 
@@ -326,10 +329,10 @@ func Query(query string, sema chan bool, ioctrl *IOCtrl) {
         hitdoc_jm_score := make(map[string]float64)
 
         for _, dstat := range *dstats {
-            okapi := OkapiTF(dstat.Tf, dstat.Dlen)
+            okapi := OkapiTF(dstat.Tf, dstat.Dlen, avg_dlen)
             idf := TF_IDF(okapi, t)
-            bm25 := OkapiBM25(dstat.Tf, dstat.Dlen, tfq[i], t)
-            laplace := UnigramLM_LaplaceSmoothing(dstat.Tf, dstat.Dlen)
+            bm25 := OkapiBM25(dstat.Tf, dstat.Dlen, tfq[i], t, total_docs, avg_dlen)
+            laplace := UnigramLM_LaplaceSmoothing(dstat.Tf, dstat.Dlen, voc_size)
             jm := UnigramLM_JMSmoothing(dstat.Tf, dstat.Dlen, ctf[i], tdlen)
 
             AddTermScore(okapi_score, dstat.Id, okapi)
@@ -343,7 +346,7 @@ func Query(query string, sema chan bool, ioctrl *IOCtrl) {
         //CompensateSmoothing(jm_score, laplace_score, unique_docs, hitdoc_jm_score,
         //                    hitdoc_laplace_score, ctf[i], tdlen)
         AccumuJM(jm_score, unique_docs, hitdoc_jm_score, ctf[i], tdlen)
-        AccumulateLaplace(laplace_score, unique_docs, hitdoc_laplace_score)
+        AccumulateLaplace(laplace_score, unique_docs, hitdoc_laplace_score, voc_size)
         
     }
 
@@ -372,21 +375,22 @@ func RankDocs(docs_score map[string]float64) []DocScore{
 
     sorter := &DocSorter{DS: scores, By: sort_func}
     sort.Sort(sorter)
-    
-    return scores[:1000]
+
+    // fmt.Println("Length of scores",len(scores))
+    return scores
 }
 
 func AddTermScore(docs_score map[string]float64, id string, score float64) {
     docs_score[id] += score
 }
 
-func AccumulateLaplace(ls, unique_docs, hit_score map[string]float64) {
+func AccumulateLaplace(ls, unique_docs, hit_score map[string]float64, voc_size float64) {
     for docno, dlen := range unique_docs {
         value, present := hit_score[docno]
         if present {
             ls[docno] += value
         } else {
-            ls[docno] += UnigramLM_LaplaceSmoothing(0, dlen)
+            ls[docno] += UnigramLM_LaplaceSmoothing(0, dlen, voc_size)
         }
     }
 }
@@ -412,7 +416,7 @@ func CompensateSmoothing(jm, ls, unique_docs, hitjm_score, hitlaplace_score map[
             ls[docno] += laplace_score
             jm[docno] += jm_score
         } else {
-            ls[docno] += UnigramLM_LaplaceSmoothing(0, dlen)
+            ls[docno] += UnigramLM_LaplaceSmoothing(0, dlen, voc_size)
             jm[docno] += UnigramLM_JMSmoothing(0, dlen, ctf, tdlen)
         }
     }
@@ -456,22 +460,3 @@ func SumDlen(all_hits *[]*[]*DocHit) float64 {
 
     return sum
 }
-/* SHOULD ADD MORE TYPES TO ELASTICGO SO THAT WE CAN FINISH THIS
-func MakeTermQuery(temr string) {
-    
-    params := map[string]interface{}{
-        "term": term,
-        "field": "text"}
-
-    script_score := map[string]interface{}{
-        "lang": "groovy",
-        "script_file": "tf",
-        "params": params,
-    }
-
-    tf_function := map[string]interface{}{
-        "script_score": script_score,
-    }
-
-    query := elastic.Query().FunctionScore("replace", ).Term("text", term)
-}*/

@@ -171,7 +171,7 @@ foreach $topic (sort keys %trec) {	# Process topics in order.
 
     $int_num_rel = int($num_rel{$topic});                # Integer part.
     $frac_num_rel = $num_rel{$topic} - $int_num_rel;     # Fractional part.
-
+    
     $r_prec = ($frac_num_rel > 0) ?
               (1 - $frac_num_rel) * $prec_list[$int_num_rel] + 
                 $frac_num_rel * $prec_list[$int_num_rel+1] :
@@ -231,7 +231,6 @@ foreach $topic (sort keys %trec) {	# Process topics in order.
 
   $sum_avg_prec += $avg_prec;
   $sum_r_prec += $r_prec;
-
   }
 
 # Now calculate summary stats.

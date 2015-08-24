@@ -8,8 +8,6 @@ import (
 )
 
 func main() {
-	//defer timeTrack(time.Now())
-
 	qs, _ := util.ReadQueries("/ap_data/query_desc.51-100.short.txt")
 
 	sema := util.NewSema(15)

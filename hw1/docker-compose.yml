@@ -5,4 +5,3 @@ test:
   external_links:
     - cs6200_elasticsearch_1:elasticsearch
   working_dir: /go/src/github.com/k1xme/CS6200/hw1
-  entrypoint: go test

@@ -7,8 +7,6 @@ import (
 
 func TestConnect(t *testing.T) {
 	Connect()
-
-	conn.AllNodesInfo()
 }
 
 func TestIndex(t *testing.T) {

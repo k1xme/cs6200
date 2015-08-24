@@ -3,14 +3,14 @@ package util
 import (
 	"fmt"
 	"github.com/mattbaird/elastigo/lib"
-	"os"
+	// "os"
 	"io/ioutil"
 	"strings"
 	"sync"
 	"path/filepath"
 )
 const (
-	env_domain = "ELASTICSEARCH_PORT_9200_TCP_ADDR"
+	env_domain = "192.168.59.3"
 	default_dir = "/ap_data/ap89_collection/"
 	port = "9200"
 	max_conn = 10
@@ -25,10 +25,10 @@ func Connect() *elastigo.Conn{
 	if conn != nil {return conn}
 
 	conn = elastigo.NewConn()
-	domain := os.Getenv(env_domain)
-	conn.Domain = domain
+	// domain := os.Getenv(env_domain)
+	conn.Domain = env_domain
 	conn.SetPort(port)
-
+	
 	return conn
 }
 
@@ -44,7 +44,7 @@ func IndexDocs() {
 	go ParseDir(default_dir, docs)
 
 	for doc := range docs {
-		indexer.Index("test", _type, string(doc.Docno), "", nil, doc, false)
+		indexer.Index("ap_dataset", _type, string(doc.Docno), "", nil, doc, false)
 	}
 	
 	indexer.Stop()
@@ -88,7 +88,6 @@ func ListFiles(dir string) ([]string, error){
 			continue
 		}
 		files = append(files, filepath.Join(dir, info.Name()))
-		fmt.Print("Append ", info.Name(), "....\r")
 	}
 
 	return files, nil

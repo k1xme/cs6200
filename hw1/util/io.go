@@ -40,7 +40,7 @@ func MergeTmpFiles(file_chan chan string, wg *sync.WaitGroup) {
     defer wg.Done()
 
     file_map := make(map[string]*os.File)
-    
+
     for _, model := range models {
         fname := fmt.Sprintf("%s_ranking.txt", model)
         file_map[model], _ = os.Create(fname)
@@ -54,12 +54,16 @@ func MergeTmpFiles(file_chan chan string, wg *sync.WaitGroup) {
         
         model := strings.Split(tmpf, ".")[0]
         writer := bufio.NewWriter(file_map[model])
-
+        if writer == nil {
+            log.Fatal("[ERROR] Cannot find merged file:", "[Model]:", model)
+        }
         for scanner.Scan() {
             line := scanner.Text()
-            _, e := writer.WriteString(line+"\n")
+            _, e := writer.WriteString(string(line+"\n"))
 
-            if e != nil { log.Println("[ERROR] in MergedTmpFiles:", e, "[TEXT]:", line)}
+            if e != nil { 
+                log.Println("[ERROR] in MergedTmpFiles:", "[Model]:", model, "[LINE]", line)
+            }
         }
         
         writer.Flush()
@@ -144,21 +148,19 @@ func NewTmpWriter(name string) *bufio.Writer {
 
 func NewTmpReader(name string) *bufio.Reader {
     f, e := os.Open(name)
-    if e != nil {
-        return nil
-    }
+    HandleError(e)
     reader := bufio.NewReader(f)
     return reader
 }
 
 func CleanTmps(file ...*os.File) error {
-    fmt.Println("clean tmp")
     for _, f := range file {
+        if f == nil {continue}
         f.Close()
-        fmt.Println("clean tmp", f)
         err := os.Remove(f.Name())
         HandleError(err)
-        os.Remove(f.Name()+".catalog")
+        err = os.Remove(f.Name()+".catalog")
+        HandleError(err)
     }
     return nil
 }
